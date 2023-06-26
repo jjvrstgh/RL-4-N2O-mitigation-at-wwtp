@@ -1,17 +1,29 @@
 import time
+import os
 import pandas as pd
 import numpy as np
 import dynamita.scheduler as ds
 import dynamita.tool as dtool
 
 class SumoSimulation:
-    def __init__(self, influent_input, do_setpoint, n_run):
+    def __init__(self, influent_input, do_setpoint, n_run, reset_state):
         self.influent_input = influent_input
         self.do_setpoint = do_setpoint
         self.n_run = n_run
-        self.model = "ZDAM.dll"
-        self.initial_state = "init_steadystate.xml"
+        self.reset_state = reset_state
 
+        self.state_filename = f"temp_state{self.n_run}.xml"
+
+        self.model = "ZDAM.dll"
+        #self.model = "sumoproject.dll"
+
+        if self.reset_state == True:
+            self.state = 'init_state.xml'
+            print('state was reset')
+        else:
+            self.state = self.state_filename
+            print('prior state was loaded')
+    
         # Set up callbacks for Sumo to call
         ds.sumo.message_callback = self.msg_callback
         ds.sumo.datacomm_callback = self.data_callback
@@ -23,18 +35,22 @@ class SumoSimulation:
         self.job = ds.sumo.schedule(
             self.model,
             commands=[
-                f"load {self.initial_state}",
+                f"load {self.state}",
                 f"set Sumo__StopTime {1 * dtool.hour};",
-                f"set Sumo__DataComm {5 * dtool.minute};",
+                f"set Sumo__DataComm {1 * dtool.minute};",
                 "mode dynamic;",
             ],
             variables=[
                 "Sumo__Time",
                 "Sumo__Plant__EnergyCenter__Pel_aeration",
-                "Sumo__Plant__CFP__CFPoffgas_GN2O_mainstream",
+                "Sumo__Plant__CFP__dEmoffgas_GN2O_mainstream_dt",
                 "Sumo__Plant__Effluent1__TN",
                 "Sumo__Plant__Effluent1__TP",
                 "Sumo__Plant__Effluent1__TCOD",
+                "Sumo__Plant__CSTR3__SN2O",
+                "Sumo__Plant__CSTR5__SN2O",
+                "Sumo__Plant__CSTR4__SO2",
+                "Sumo__Plant__CSTR5__SO2"
             ],
             jobData={
                 ds.sumo.persistent: True,
@@ -53,8 +69,8 @@ class SumoSimulation:
 
         # transform action to DOsp and SUMO-acceptable format
         do_setpoint = np.array(self.do_setpoint, dtype=np.float32)
-        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__CSTR4__param__DOSP {do_setpoint}")
-        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__CSTR5__param__DOSP {do_setpoint}")
+        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__CSTR4__param__DOSP {do_setpoint[0]}")
+        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__CSTR5__param__DOSP {do_setpoint[1]}")
 
         # start run
         ds.sumo.sendCommand(self.job, "start")
@@ -62,11 +78,20 @@ class SumoSimulation:
     def data_callback(self, job, data):
         # Check Sumo timestep
         t = data["Sumo__Time"]
+        stop = 1 * dtool.hour
+
+        if t == stop:
         
-        if t == dtool.hour:
             self.save_data_to_csv(data)
             print('saving output...')
+
+            if os.path.isfile(self.state_filename):
+                os.remove(self.state_filename)
+                print("Existing state file deleted.")
+
+            ds.sumo.sendCommand(self.job, f"save {self.state_filename}")
             time.sleep(0.3)
+
 
     def msg_callback(self, job, msg):
         print("MSG #" + str(job) + ": '" + msg + "'")
