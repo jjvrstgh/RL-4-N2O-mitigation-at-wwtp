@@ -5,108 +5,95 @@ import numpy as np
 import dynamita.scheduler as ds
 import dynamita.tool as dtool
 
-class SumoSimulation:
-    def __init__(self, influent_input, do_setpoint, n_run, reset_state):
-        self.influent_input = influent_input
-        self.do_setpoint = do_setpoint
-        self.n_run = n_run
-        self.reset_state = reset_state
+state_filename = "temp_state1.xml"
+filepath_csv = "model_output_1.csv"
 
-        self.state_filename = f"temp_state{self.n_run}.xml"
+def run_simulation(influent_input, do_setpoint, reset_state):
 
-        self.model = "ZDAM.dll"
-        #self.model = "sumoproject.dll"
-
-        if self.reset_state == True:
-            self.state = 'init_state.xml'
-            print('state was reset')
-        else:
-            self.state = self.state_filename
-            print('prior state was loaded')
+    # load influent parameters to respective SUMO parameter
+    influent_input = np.array(influent_input, dtype=np.float32)
     
-        # Set up callbacks for Sumo to call
-        ds.sumo.message_callback = self.msg_callback
-        ds.sumo.datacomm_callback = self.data_callback
+    # transform action to DOsp and SUMO-acceptable format
+    do_setpoint = np.array(do_setpoint, dtype=np.float32)
 
-        # Set the number of parallel simulations (6 cores, so 6 runs)
-        ds.sumo.setParallelJobs(6)
+    #self.model = "ZDAM.dll"
+    model = "sumoproject.dll"
 
-        # Schedule the Sumo job
-        self.job = ds.sumo.schedule(
-            self.model,
-            commands=[
-                f"load {self.state}",
-                f"set Sumo__StopTime {1 * dtool.hour};",
-                f"set Sumo__DataComm {1 * dtool.minute};",
-                "mode dynamic;",
-            ],
-            variables=[
-                "Sumo__Time",
-                "Sumo__Plant__EnergyCenter__Pel_aeration",
-                "Sumo__Plant__CFP__dEmoffgas_GN2O_mainstream_dt",
-                "Sumo__Plant__Effluent1__TN",
-                "Sumo__Plant__Effluent1__TP",
-                "Sumo__Plant__Effluent1__TCOD",
-                "Sumo__Plant__CSTR3__SN2O",
-                "Sumo__Plant__CSTR5__SN2O",
-                "Sumo__Plant__CSTR4__SO2",
-                "Sumo__Plant__CSTR5__SO2"
-            ],
-            jobData={
-                ds.sumo.persistent: True,
-                "results": {},
-            },
-        )
+    if reset_state == True:
+        state = 'init_state.xml'
+        print('state was reset')
+    else:
+        state = state_filename
+        print('prior state was loaded')
 
-    def run_simulation(self):
-        # load influent parameters to respective SUMO parameter
-        influent_input = np.array(self.influent_input, dtype=np.float32)
-        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__Influent1__param__T {influent_input[0]}")
-        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__Influent1__param__TCOD {influent_input[1]}")
-        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__Influent1__param__TKN {influent_input[2]}")
-        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__Influent1__param__TP {influent_input[3]}")
-        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__Influent1__param__Q {influent_input[4]}")
+    # Set up callbacks for Sumo to call
+    ds.sumo.message_callback = msg_callback
+    ds.sumo.datacomm_callback = data_callback
 
-        # transform action to DOsp and SUMO-acceptable format
-        do_setpoint = np.array(self.do_setpoint, dtype=np.float32)
-        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__CSTR4__param__DOSP {do_setpoint[0]}")
-        ds.sumo.sendCommand(self.job, f"set Sumo__Plant__CSTR5__param__DOSP {do_setpoint[1]}")
+    # Set the number of parallel simulations (6 cores, so 6 runs)
+    ds.sumo.setParallelJobs(6)
 
-        # start run
-        ds.sumo.sendCommand(self.job, "start")
+    # Schedule the Sumo job
+    job = ds.sumo.schedule(model,
+        commands=[
+            f"load {state}",
+            f"set Sumo__Plant__Influent1__param__T {influent_input[0]};",
+            f"set Sumo__Plant__Influent1__param__TCOD {influent_input[1]};",
+            f"set Sumo__Plant__Influent1__param__TKN {influent_input[2]};",
+            f"set Sumo__Plant__Influent1__param__TP {influent_input[3]};",
+            f"set Sumo__Plant__Influent1__param__Q {influent_input[4]};",
+            f"set Sumo__Plant__CSTR4__param__DOSP {do_setpoint[0]};",
+            f"set Sumo__Plant__CSTR5__param__DOSP {do_setpoint[1]};",
+            f"set Sumo__StopTime {1 * dtool.hour};",
+            f"set Sumo__DataComm {1 * dtool.hour};",
+            "mode dynamic;",
+            "start;",
+        ],
+        variables=[
+            "Sumo__Time",
+            "Sumo__Plant__EnergyCenter__Pel_aeration",
+            "Sumo__Plant__CFP__dEmoffgas_GN2O_mainstream_dt",
+            "Sumo__Plant__Effluent1__TN",
+            "Sumo__Plant__Effluent1__TP",
+            "Sumo__Plant__Effluent1__TCOD",
+            "Sumo__Plant__CSTR3__SN2O",
+            "Sumo__Plant__CSTR5__SN2O",
+            "Sumo__Plant__CSTR4__SO2",
+            "Sumo__Plant__CSTR5__SO2"
+        ],
+        jobData={
+            "finished": False,
+        },
+    )
+    jobData = ds.sumo.getJobData(job)
+    while(not jobData["finished"]):
+        time.sleep(0.1)
 
-    def data_callback(self, job, data):
-        # Check Sumo timestep
-        t = data["Sumo__Time"]
-        stop = 1 * dtool.hour
+def data_callback(job, data):
+    #save the current data as last data (this will get overwritten in all datacomm)
+    jobData = ds.sumo.getJobData(job)
+    jobData["last_data"] = data
 
-        if t == stop:
+def msg_callback(job, msg):
+   # In case of simulation finished sumocore message and end simulation
+    jobData = ds.sumo.getJobData(job)
+    if (ds.sumo.isSimFinishedMsg(msg)):
+        jobData["finished"] = True
         
-            self.save_data_to_csv(data)
-            print('saving output...')
+        # save last data
+        save_data_to_csv(jobData["last_data"])
+        ds.sumo.sendCommand(job, f"save {state_filename}")
 
-            if os.path.isfile(self.state_filename):
-                os.remove(self.state_filename)
-                print("Existing state file deleted.")
+    if msg.startswith("530045") and jobData["finished"]:
+        ds.sumo.finish(job)
 
-            ds.sumo.sendCommand(self.job, f"save {self.state_filename}")
-            time.sleep(0.3)
+def save_data_to_csv(data):
+    # Create a DataFrame with the data
+    df = pd.DataFrame([data])
 
+    # Drop the column with name "Sumo__time"
+    df = df.drop(columns=["Sumo__Time"])
 
-    def msg_callback(self, job, msg):
-        print("MSG #" + str(job) + ": '" + msg + "'")
-        if ds.sumo.isSimFinishedMsg(msg):
-            ds.sumo.finish(job)
-
-    def save_data_to_csv(self, data):
-        filepath = f"model_output_{self.n_run}.csv"
-
-        # Create a DataFrame with the data
-        df = pd.DataFrame([data])
-
-        # Drop the column with name "Sumo__time"
-        df = df.drop(columns=["Sumo__Time"])
-
-        # Write the DataFrame to CSV, overwrite existing file
-        df.to_csv(filepath, mode="w", index=False)
+    # Write the DataFrame to CSV, overwrite existing file
+    df.to_csv(filepath_csv, mode="w", index=False)
 

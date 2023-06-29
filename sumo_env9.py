@@ -13,7 +13,7 @@ import dynamita.tool as dtool
 
 # Import the reward function from the reward file
 from reward import calculate_reward
-from sumo_runner4 import SumoSimulation
+from sumo_runner4 import run_simulation
 
 n_variables = 14  # Determine observation space
 t_state = 3 # n timesteps in statespace
@@ -178,8 +178,7 @@ class sumo_env(gym.Env):
         # Load the next row as the new observation
         _, influent = self._load_next_row()
         
-        simulation = SumoSimulation(influent, do_setpoint, self.n_run, self.reset_state)
-        simulation.run_simulation()
+        run_simulation(influent, do_setpoint, self.reset_state)
 
         # check for new temp output file
         get_file = wait_for_file(temp_output, 3)
