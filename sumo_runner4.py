@@ -11,16 +11,35 @@ filepath_csv = "model_output_1.csv"
 def run_simulation(influent_input, do_setpoint, reset_state):
 
     # load influent parameters to respective SUMO parameter
-    influent_input = np.array(influent_input, dtype=np.float32)
-    
-    # transform action to DOsp and SUMO-acceptable format
-    do_setpoint = np.array(do_setpoint, dtype=np.float32)
+    influent_input = np.round(np.array(influent_input, dtype=np.float32), 3)
+    print(influent_input)
 
-    #self.model = "ZDAM.dll"
+    # transform action to DOsp and SUMO-acceptable format
+    do_setpoint = np.round(np.array(do_setpoint, dtype=np.float32), 3)
+
+    sumo_names = ["Sumo__Plant__Influent1__param__T", "Sumo__Plant__Influent1__param__TCOD",
+                  "Sumo__Plant__Influent1__param__TKN", "Sumo__Plant__Influent1__param__TP",
+                  "Sumo__Plant__Influent1__param__Q", "Sumo__Plant__CSTR4__param__DOSP",
+                  "Sumo__Plant__CSTR5__param__DOSP"]
+
+    # Reshape the arrays to be a single row
+    influent_input = influent_input.reshape(1, -1)
+    do_setpoint = do_setpoint.reshape(1, -1)
+
+    # Create a DataFrame from the reshaped arrays
+    temp_input_df = pd.DataFrame(np.concatenate((influent_input, do_setpoint), axis=1), columns=sumo_names)
+
+    # Add a new column at the first position
+    temp_input_df.insert(0, "Sumo__Time", 0)
+
+    # Export the DataFrame as a TSV file
+    temp_input_df.to_csv("input.tsv", sep="\t", index=False)
+
+
     model = "sumoproject.dll"
 
     if reset_state == True:
-        state = 'init_state.xml'
+        state = 'init.xml'
         print('state was reset')
     else:
         state = state_filename
@@ -37,13 +56,7 @@ def run_simulation(influent_input, do_setpoint, reset_state):
     job = ds.sumo.schedule(model,
         commands=[
             f"load {state}",
-            f"set Sumo__Plant__Influent1__param__T {influent_input[0]};",
-            f"set Sumo__Plant__Influent1__param__TCOD {influent_input[1]};",
-            f"set Sumo__Plant__Influent1__param__TKN {influent_input[2]};",
-            f"set Sumo__Plant__Influent1__param__TP {influent_input[3]};",
-            f"set Sumo__Plant__Influent1__param__Q {influent_input[4]};",
-            f"set Sumo__Plant__CSTR4__param__DOSP {do_setpoint[0]};",
-            f"set Sumo__Plant__CSTR5__param__DOSP {do_setpoint[1]};",
+            f"loadtsv input.tsv;",
             f"set Sumo__StopTime {1 * dtool.hour};",
             f"set Sumo__DataComm {1 * dtool.hour};",
             "mode dynamic;",
@@ -75,7 +88,8 @@ def data_callback(job, data):
     jobData["last_data"] = data
 
 def msg_callback(job, msg):
-   # In case of simulation finished sumocore message and end simulation
+    # In case of simulation finished sumocore message and end simulation
+    print("MSG #" + str(job) + ": '" + msg + "'")
     jobData = ds.sumo.getJobData(job)
     if (ds.sumo.isSimFinishedMsg(msg)):
         jobData["finished"] = True

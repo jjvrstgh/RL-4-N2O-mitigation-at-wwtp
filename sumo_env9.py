@@ -284,7 +284,7 @@ class sumo_env(gym.Env):
 
         if normalized_last_n_states.shape[0] != n_variables * t_state:
             normalized_last_n_states =  np.zeros(n_variables * t_state)
-            print('dummy state used')
+            print('dummy observation used')
 
         # Write the updated data back to the pkl file
         with open("normalized_state_rwd_action.pkl", "wb") as f:
@@ -316,7 +316,7 @@ class sumo_env(gym.Env):
         # keep reset on false
         self.reset_state = False
 
-        return normalized_last_n_states, normalized_reward, self.done, {}
+        return normalized_last_n_states, reward, self.done, {}
 
 
     def reset(self):

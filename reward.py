@@ -57,6 +57,7 @@ def calculate_reward(observation):
 
     reward = float(reward)
 
+    # adjust random print frequency (1 == 100% change)
     if random.randint(1, 1) == 1:
 
         # Print statements with color
